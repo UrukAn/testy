@@ -19,6 +19,8 @@ import subprocess
 import sys
 import threading
 import webbrowser
+import csv
+import io
 from datetime import datetime
 
 MIN_STREAMLIT = (1, 30)
@@ -84,6 +86,7 @@ def _launch_self():
 _ensure_streamlit()
 
 import streamlit as st  # noqa: E402
+import pandas as pd  # noqa: E402
 from streamlit import runtime  # noqa: E402
 
 if not runtime.exists():
@@ -477,6 +480,73 @@ with main_col:
             """,
             unsafe_allow_html=True,
         )
+
+# ─────────────────────────────── CSV / TABELA DANYCH ───────────────────────────────
+st.markdown("---")
+st.markdown("## 📊 Przeglądarka plików CSV")
+st.caption("Dodaj plik CSV, a następnie przeglądaj, sortuj i filtruj jego zawartość.")
+
+uploaded_csv = st.file_uploader("Wybierz plik CSV", type=["csv"], key="csv_uploader")
+
+if uploaded_csv is not None:
+    try:
+        raw = uploaded_csv.getvalue()
+        encoding = "utf-8-sig"
+        try:
+            text_data = raw.decode(encoding)
+        except UnicodeDecodeError:
+            encoding = "cp1250"
+            text_data = raw.decode(encoding)
+
+        sample = text_data[:10000]
+        try:
+            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+        except csv.Error:
+            delimiter = ";" if sample.count(";") > sample.count(",") else ","
+
+        df = pd.read_csv(io.StringIO(text_data), sep=delimiter)
+        st.success(f"Wczytano {uploaded_csv.name}: {len(df):,} wierszy × {len(df.columns)} kolumn | separator: {repr(delimiter)} | kodowanie: {encoding}")
+
+        with st.expander("🔎 Filtrowanie i sortowanie", expanded=True):
+            search_text = st.text_input("Szukaj we wszystkich kolumnach", placeholder="Wpisz fragment tekstu...")
+            filter_col = st.selectbox("Kolumna do filtrowania", ["— brak —"] + list(df.columns))
+            filtered = df.copy()
+
+            if search_text:
+                mask = filtered.astype(str).apply(
+                    lambda col: col.str.contains(search_text, case=False, na=False, regex=False)
+                ).any(axis=1)
+                filtered = filtered[mask]
+
+            if filter_col != "— brak —":
+                values = filtered[filter_col].dropna().astype(str).unique().tolist()
+                if len(values) <= 200:
+                    chosen = st.multiselect("Wartości", sorted(values))
+                    if chosen:
+                        filtered = filtered[filtered[filter_col].astype(str).isin(chosen)]
+                else:
+                    contains = st.text_input(f"{filter_col} zawiera")
+                    if contains:
+                        filtered = filtered[filtered[filter_col].astype(str).str.contains(contains, case=False, na=False, regex=False)]
+
+            c1, c2 = st.columns(2)
+            with c1:
+                sort_col = st.selectbox("Sortuj po", ["— bez sortowania —"] + list(df.columns))
+            with c2:
+                sort_dir = st.radio("Kierunek", ["Rosnąco", "Malejąco"], horizontal=True)
+            if sort_col != "— bez sortowania —":
+                filtered = filtered.sort_values(sort_col, ascending=(sort_dir == "Rosnąco"), na_position="last")
+
+        st.caption(f"Wyświetlono {len(filtered):,} z {len(df):,} wierszy")
+        st.dataframe(filtered, use_container_width=True, hide_index=True, height=520)
+        st.download_button(
+            "⬇️ Pobierz przefiltrowane dane CSV",
+            filtered.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"filtrowane_{uploaded_csv.name}",
+            mime="text/csv",
+        )
+    except Exception as exc:
+        st.error(f"Nie udało się odczytać pliku CSV: {exc}")
 
 with side_col:
     ci = COURSES[course]
