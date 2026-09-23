@@ -1,12 +1,94 @@
 """
 Panel Kursanta — Streamlit
-Uruchomienie:  pip install streamlit  &&  streamlit run app.py
+
+W PyCharmie: otwórz app.py i kliknij zielony ▶ (Run).
+Skrypt sam:
+  1. doinstaluje Streamlit do interpretera, którego używa PyCharm,
+  2. uruchomi serwer Streamlit,
+  3. otworzy panel w przeglądarce.
+
+Z terminala działa też klasycznie:  streamlit run app.py
 """
 import html
+import importlib
+import importlib.util
+import os
 import re
+import socket
+import subprocess
+import sys
+import threading
+import webbrowser
 from datetime import datetime
 
-import streamlit as st
+MIN_STREAMLIT = (1, 30)
+
+
+# ─────────────────────────────── AUTO-START ───────────────────────────────
+def _log(msg):
+    print(f"[panel-kursanta] {msg}", flush=True)
+
+
+def _streamlit_version():
+    try:
+        from importlib.metadata import version
+
+        return tuple(int(x) for x in re.findall(r"\d+", version("streamlit"))[:2])
+    except Exception:
+        return None
+
+
+def _ensure_streamlit():
+    """Instaluje/aktualizuje Streamlit w bieżącym interpreterze, jeśli trzeba."""
+    ver = _streamlit_version()
+    if importlib.util.find_spec("streamlit") is not None and ver and ver >= MIN_STREAMLIT:
+        return
+    _log("Brak Streamlit (lub za stara wersja) - instaluję, chwila...")
+    _log(f"Interpreter: {sys.executable}")
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "streamlit>=1.30"]
+    if subprocess.call(cmd) != 0:
+        _log("pip nie zadziałał - próbuję doinstalować pip (ensurepip)...")
+        subprocess.call([sys.executable, "-m", "ensurepip", "--upgrade"])
+        subprocess.check_call(cmd)
+    importlib.invalidate_caches()
+    _log("Streamlit zainstalowany.")
+
+
+def _free_port(preferred=8501):
+    for port in range(preferred, preferred + 50):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return port
+    return preferred
+
+
+def _launch_self():
+    """Uruchamia ten plik przez Streamlit w tym samym procesie (działa Stop w PyCharmie)."""
+    from streamlit.web import cli as stcli
+
+    port = _free_port()
+    url = f"http://localhost:{port}"
+    _log(f"Startuję panel: {url}")
+    _log("Zatrzymanie: czerwony kwadrat w PyCharmie (albo Ctrl+C).")
+    threading.Timer(2.5, lambda: webbrowser.open(url)).start()
+    sys.argv = [
+        "streamlit", "run", os.path.abspath(__file__),
+        "--server.port", str(port),
+        "--server.headless", "true",          # bez pytania o e-mail przy 1. starcie
+        "--browser.gatherUsageStats", "false",
+        "--theme.base", "dark",
+    ]
+    sys.exit(stcli.main())
+
+
+_ensure_streamlit()
+
+import streamlit as st  # noqa: E402
+from streamlit import runtime  # noqa: E402
+
+if not runtime.exists():
+    # Plik uruchomiony zwykłym "python app.py" (np. ▶ w PyCharmie) - odpal przez Streamlit.
+    _launch_self()
 
 # ─────────────────────────────── KONFIGURACJA ───────────────────────────────
 st.set_page_config(
@@ -69,7 +151,7 @@ with st.sidebar:
     course = st.radio(
         "Kurs",
         list(COURSES.keys()),
-        format_func=lambda c: f"{COURSES[c]['icon']}  {c}",
+        format_func=lambda crs: f"{COURSES[crs]['icon']}  {crs}",
         label_visibility="collapsed",
     )
     c = COURSES[course]
@@ -100,7 +182,7 @@ st.markdown(
 :root {{ --accent: {ACCENT}; }}
 
 html, body, [class*="css"], .stMarkdown, input, label, button {{
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Inter', system-ui, 'Segoe UI', sans-serif !important;
 }}
 
 /* animowane tło */
@@ -130,11 +212,15 @@ section[data-testid="stSidebar"] {{
     width:48px; height:48px; border-radius:14px; display:grid; place-items:center;
     font-size:1.6rem; background:{GRAD}; box-shadow:0 8px 24px {ACCENT}55;
 }}
-.brand-title {{ font-family:'Space Grotesk'; font-weight:700; font-size:1.25rem; color:#fff; }}
+.brand-title {{ font-family:'Space Grotesk','Inter',system-ui,sans-serif; font-weight:700; font-size:1.25rem; color:#fff; }}
 .brand-sub {{ font-size:.75rem; letter-spacing:.14em; text-transform:uppercase; color:#8b90b0; }}
 .side-label {{ font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; color:#8b90b0; margin-bottom:.4rem; }}
 
+section[data-testid="stSidebar"] div[role="radiogroup"],
+section[data-testid="stSidebar"] div[role="radiogroup"] > *,
+section[data-testid="stSidebar"] div[data-testid="stRadio"] {{ width:100% !important; }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label {{
+    display:flex; align-items:center; box-sizing:border-box;
     background: rgba(255,255,255,.04);
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 12px; padding: .7rem 1rem; margin-bottom: .45rem; width: 100%;
@@ -147,7 +233,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     background: rgba(255,255,255,.1); border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent), 0 6px 20px {ACCENT}33;
 }}
-section[data-testid="stSidebar"] div[role="radiogroup"] p {{ font-size:1.02rem; font-weight:500; }}
+section[data-testid="stSidebar"] div[role="radiogroup"] p {{ font-size:1.02rem; font-weight:500; color:#e8eaf6 !important; }}
 
 .course-card {{
     margin-top:1.4rem; border-radius:20px; padding:1.3rem; color:#fff;
@@ -162,7 +248,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] p {{ font-size:1.02rem; 
 @keyframes shine {{ 60%,100% {{ transform:translateX(100%); }} }}
 @keyframes pop {{ from {{ opacity:0; transform:scale(.92) translateY(10px); }} to {{ opacity:1; transform:none; }} }}
 .course-card-icon {{ font-size:2.2rem; }}
-.course-card-name {{ font-family:'Space Grotesk'; font-size:1.6rem; font-weight:700; text-shadow:0 2px 8px rgba(0,0,0,.3); }}
+.course-card-name {{ font-family:'Space Grotesk','Inter',system-ui,sans-serif; font-size:1.6rem; font-weight:700; text-shadow:0 2px 8px rgba(0,0,0,.3); }}
 .course-card-tag {{ font-size:.85rem; opacity:.95; margin:.2rem 0 .9rem; }}
 .course-card-stats {{ display:flex; gap:.5rem; flex-wrap:wrap; }}
 .course-card-stats span {{
@@ -177,7 +263,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] p {{ font-size:1.02rem; 
     background:{ACCENT}18; border:1px solid {ACCENT}55;
 }}
 .hero h1 {{
-    font-family:'Space Grotesk' !important; font-size:3.2rem !important; font-weight:700 !important;
+    font-family:'Space Grotesk','Inter',system-ui,sans-serif !important; font-size:3.2rem !important; font-weight:700 !important;
     line-height:1.05 !important; margin:.8rem 0 .4rem !important; padding:0 !important;
     background: linear-gradient(90deg,#fff 0%,var(--accent) 50%,#b388ff 100%);
     background-size:200% auto; -webkit-background-clip:text; background-clip:text;
@@ -194,14 +280,19 @@ div[data-testid="stForm"] {{
     backdrop-filter: blur(14px);
     box-shadow: 0 20px 60px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
 }}
-.form-title {{ font-family:'Space Grotesk'; font-size:1.35rem; font-weight:700; color:#fff; margin-bottom:.2rem; }}
+.form-title {{ font-family:'Space Grotesk','Inter',system-ui,sans-serif; font-size:1.35rem; font-weight:700; color:#fff; margin-bottom:.2rem; }}
 .form-sub {{ color:#8b90b0; font-size:.9rem; margin-bottom:1.2rem; }}
 
 div[data-testid="stTextInput"] input {{
-    background: rgba(0,0,0,.3) !important; border:1px solid rgba(255,255,255,.12) !important;
+    background: rgba(10,12,24,.75) !important; border:1px solid rgba(255,255,255,.14) !important;
     border-radius:12px !important; color:#fff !important; padding:.75rem 1rem !important;
     transition: all .2s ease;
 }}
+div[data-testid="stTextInput"] div[data-baseweb="input"],
+div[data-testid="stTextInput"] div[data-baseweb="base-input"] {{
+    background: transparent !important; border:none !important;
+}}
+div[data-testid="stTextInput"] input::placeholder {{ color:#6b7094 !important; }}
 div[data-testid="stTextInput"] input:focus {{
     border-color: var(--accent) !important; box-shadow: 0 0 0 3px {ACCENT}33 !important;
 }}
@@ -210,11 +301,16 @@ div[data-testid="stTextInput"] label p, div[data-testid="stRadio"] > label p {{
 }}
 
 /* poziomy jako kafelki */
-div[data-testid="stForm"] div[role="radiogroup"] {{ gap:.7rem; flex-wrap:wrap; }}
+div[data-testid="stForm"] div[role="radiogroup"] {{
+    display:flex; flex-direction:row; flex-wrap:wrap; gap:.7rem; align-items:stretch;
+}}
 div[data-testid="stForm"] div[role="radiogroup"] label {{
-    flex:1 1 180px; background: rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.1);
+    flex:1 1 0; min-width:170px; height:auto; min-height:0; box-sizing:border-box;
+    display:flex; align-items:center;
+    background: rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.1);
     border-radius:14px; padding:.9rem 1rem; transition: all .25s ease; margin:0;
 }}
+div[data-testid="stForm"] div[role="radiogroup"] label p {{ color:#e8eaf6 !important; font-weight:500; }}
 div[data-testid="stForm"] div[role="radiogroup"] label:hover {{ transform: translateY(-3px); border-color: var(--accent); }}
 div[data-testid="stForm"] div[role="radiogroup"] label:has(input:checked) {{
     background: {ACCENT}1f; border-color: var(--accent); box-shadow: 0 8px 24px {ACCENT}30;
@@ -240,10 +336,10 @@ div[data-testid="stFormSubmitButton"] button:hover {{
 .result-head {{ display:flex; align-items:center; gap:1rem; margin-bottom:1.4rem; }}
 .avatar {{
     width:64px; height:64px; border-radius:50%; background:{GRAD}; display:grid; place-items:center;
-    font-family:'Space Grotesk'; font-weight:700; font-size:1.6rem; color:#fff;
+    font-family:'Space Grotesk','Inter',system-ui,sans-serif; font-weight:700; font-size:1.6rem; color:#fff;
     box-shadow:0 0 0 4px #11131f, 0 0 0 6px var(--accent);
 }}
-.result-title {{ font-family:'Space Grotesk'; font-size:1.5rem; font-weight:700; color:#fff; }}
+.result-title {{ font-family:'Space Grotesk','Inter',system-ui,sans-serif; font-size:1.5rem; font-weight:700; color:#fff; }}
 .result-date {{ color:#8b90b0; font-size:.85rem; }}
 .badge-ok {{
     margin-left:auto; background:#16a34a22; color:#4ade80; border:1px solid #4ade8055;
@@ -277,7 +373,7 @@ div[data-testid="stFormSubmitButton"] button:hover {{
     background: rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.1);
     border-radius:20px; padding:1.2rem 1.3rem; margin-bottom:.9rem; backdrop-filter: blur(14px);
 }}
-.stat-num {{ font-family:'Space Grotesk'; font-size:2rem; font-weight:700; color:var(--accent); }}
+.stat-num {{ font-family:'Space Grotesk','Inter',system-ui,sans-serif; font-size:2rem; font-weight:700; color:var(--accent); }}
 .stat-lbl {{ color:#a4a9c9; font-size:.88rem; }}
 </style>
 """,
@@ -316,7 +412,7 @@ with main_col:
         level = st.radio(
             "Poziom",
             list(LEVELS.keys()),
-            format_func=lambda l: f"{LEVELS[l]['icon']}  {l}",
+            format_func=lambda lvl: f"{LEVELS[lvl]['icon']}  {lvl}",
             horizontal=True,
         )
 
@@ -329,8 +425,8 @@ with main_col:
         if not EMAIL_RE.match(email.strip()):
             errors.append("Podaj poprawny adres e-mail.")
         if errors:
-            for e in errors:
-                st.error(e, icon="⚠️")
+            for err in errors:
+                st.error(err, icon="⚠️")
         else:
             st.session_state["student"] = {
                 "name": html.escape(name.strip()),

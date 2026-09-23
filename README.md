@@ -2,9 +2,19 @@
 
 Efektowny panel kursanta: wybór kursu w sidebarze, formularz z danymi i poziomem, karta kursanta po zapisaniu.
 
-## Uruchomienie
+## Uruchomienie w PyCharm (najprościej)
+
+1. Otwórz projekt (**Get from VCS** → `https://github.com/UrukAn/testy.git`).
+2. Otwórz `app.py` i kliknij zielony **▶ Run**.
+
+Skrypt sam doinstaluje Streamlit do interpretera projektu, uruchomi serwer
+i otworzy panel w przeglądarce. Zatrzymanie: czerwony kwadrat w PyCharmie.
+
+## Uruchomienie z terminala
 
 ```bash
+python app.py
+# albo klasycznie:
 pip install -r requirements.txt
 streamlit run app.py
 ```
